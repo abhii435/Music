@@ -1,14 +1,15 @@
 import os
 from flask import Flask
 from threading import Thread
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from pytgcalls import PyTgCalls
 from pytgcalls.types.input_stream import AudioPiped
 from youtube_search import YoutubeSearch
 import yt_dlp
+import asyncio
 
-# --- RENDER PORT FIX ---
+# --- FLASK SERVER FOR KOYEB ---
 server = Flask('')
 @server.route('/')
 def home():
@@ -23,29 +24,22 @@ Thread(target=run).start()
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-SESSION = os.environ.get("SESSION") # Assistant User String Session
+SESSION = os.environ.get("SESSION") 
 CHANNEL_1 = "LighZYagami"
 CHANNEL_2 = "antishu72"
 
-# Bot Client
+# Clients
 app = Client("musicbot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-
-# Assistant Client (Zaroori for Voice Chat)
 assistant = Client("assistant", api_id=API_ID, api_hash=API_HASH, session_string=SESSION)
-
 vc = PyTgCalls(assistant)
-queue = []
 
 @app.on_message(filters.command("start"))
-async def start(client: Client, message: Message):
+async def start(client, message):
     user_id = message.from_user.id
     try:
-        member1 = await client.get_chat_member(CHANNEL_1, user_id)
-        member2 = await client.get_chat_member(CHANNEL_2, user_id)
+        await client.get_chat_member(CHANNEL_1, user_id)
+        await client.get_chat_member(CHANNEL_2, user_id)
     except:
-        member1 = member2 = None
-
-    if not member1 or not member2:
         buttons = [[
             InlineKeyboardButton("🔔 Join Channel 1", url=f"https://t.me/{CHANNEL_1}"),
             InlineKeyboardButton("🔔 Join Channel 2", url=f"https://t.me/{CHANNEL_2}")
@@ -55,8 +49,8 @@ async def start(client: Client, message: Message):
     buttons = [[InlineKeyboardButton("➕ Add Bot To Your Group", url="https://t.me/LulzZec_Bot?startchannel=true")]]
     await message.reply_photo(photo="music.jpg", caption="🎧 **Welcome to Music Bot**\n\n▶️ Play music using /play", reply_markup=InlineKeyboardMarkup(buttons))
 
-@app.on_message(filters.command("play"))
-async def play(client: Client, message: Message):
+@app.on_message(filters.command("play") & filters.group)
+async def play(client, message):
     if len(message.command) < 2:
         return await message.reply("❌ Usage: /play song name")
 
@@ -76,22 +70,28 @@ async def play(client: Client, message: Message):
 
     try:
         if not vc.is_connected:
-            await assistant.start() # Start assistant if not started
             await vc.join_group_call(message.chat.id, AudioPiped("song.mp3"))
-            await m.edit(f"▶️ **Playing:** {results[0]['title']}")
-        else:
-            await m.edit(f"✅ **Queued:** {results[0]['title']}")
+        await m.edit(f"▶️ **Playing:** {results[0]['title']}")
     except Exception as e:
         await m.edit(f"❌ Error: {e}")
 
-@app.on_message(filters.command("stop"))
-async def stop(client: Client, message: Message):
+@app.on_message(filters.command("stop") & filters.group)
+async def stop(client, message):
     try:
         await vc.leave_group_call(message.chat.id)
         await message.reply("⏹ Music stopped.")
     except:
         await message.reply("❌ No active call.")
 
-print("Bot & Assistant Starting...")
-vc.start()
-app.run()
+# --- STARTING LOGIC ---
+async def start_bot():
+    print("Starting Bot & Assistant...")
+    await app.start()
+    await assistant.start()
+    await vc.start()
+    print("Bot is Online!")
+    await idle()
+
+if __name__ == "__main__":
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(start_bot())
